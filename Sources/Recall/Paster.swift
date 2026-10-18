@@ -3,20 +3,8 @@ import ApplicationServices
 import Carbon.HIToolbox
 
 /// Puts text on the clipboard and, with Accessibility access, pastes it into the frontmost app
-/// by sending a synthetic ⌘V.
+/// by sending a synthetic ⌘V. (The access itself is SwiftAppKit's `Accessibility`.)
 enum Paster {
-    static var hasAccessibility: Bool { AXIsProcessTrusted() }
-
-    /// Shows the system "Recall would like to control this computer" prompt if access isn't granted.
-    static func requestAccessibility() {
-        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
-    }
-
-    @MainActor
-    static func openAccessibilitySettings() {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-    }
-
     @MainActor
     static func copy(_ text: String) {
         let pasteboard = NSPasteboard.general

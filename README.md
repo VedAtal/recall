@@ -15,7 +15,9 @@ That one command does everything:
 
 1. Checks that Swift is installed. If it isn't, it opens Apple's Command Line Tools installer;
    re-run the command once that finishes. Full Xcode isn't needed.
-2. Downloads the latest version from GitHub ([VedAtal/recall](https://github.com/VedAtal/recall)).
+2. Downloads the latest version from GitHub ([VedAtal/recall](https://github.com/VedAtal/recall)),
+   along with [swift-app-kit](https://github.com/VedAtal/swift-app-kit), the parts it shares with
+   my other menu bar apps.
 3. Creates a local code-signing certificate (first run only, see [why](#why-the-signing-certificate)).
 4. Builds Recall and installs it to `~/Applications/Recall.app`.
 5. Launches it and sets it to start at login.
@@ -123,24 +125,23 @@ Keep the target text field focused before you press the shortcut.
 
 ## How it works
 
+Recall is built on [swift-app-kit](https://github.com/VedAtal/swift-app-kit), which provides
+the parts my menu bar apps share: the install script, the menu bar menu's standard items,
+the Settings window layout, the shortcut recorder, launch at login, and updates. This repo
+holds only what's specific to Recall:
+
 ```
 Sources/Recall/
-├── main.swift               App entry point (menu-bar-only app, no Dock icon)
-├── AppDelegate.swift        Connects the parts below and applies settings changes live
+├── main.swift               Starts the app through swift-app-kit
+├── AppDelegate.swift        Connects the parts below, adds Recall's menu items, applies settings live
 ├── ClipboardWatcher.swift   Checks NSPasteboard.changeCount every 0.25s for new text
 ├── HistoryStore.swift       Newest-first list with no duplicates, saved as JSON
-├── HotKey.swift             Global shortcut via Carbon RegisterEventHotKey (no permissions)
 ├── SwitcherPanel.swift      The ⇧⌘V popup: a non-activating NSPanel with a SwiftUI list
 ├── Paster.swift             Writes the clipboard and sends a synthetic ⌘V (needs Accessibility)
-├── MenuBarController.swift  Menu bar icon and menu
-├── SettingsWindow.swift     Settings window and shortcut recorder
-├── Updater.swift            "Update Recall": runs the bundled setup.sh to install from GitHub
-├── LoginItem.swift          Launch at login (SMAppService)
-├── Preferences.swift        Settings stored in UserDefaults
-└── Shortcut.swift           Key code and modifier handling for shortcuts
-Resources/Info.plist         Bundle metadata (LSUIElement = menu bar only)
-scripts/make-icon.swift      Draws the app icon at build time
-setup.sh                     Install (from GitHub or --local), build, sign, uninstall
+├── SettingsWindow.swift     Recall's sections of the Settings window
+└── Preferences.swift        Settings stored in UserDefaults
+app.env                      Name, bundle ID, icons: what swift-app-kit's setup builds
+setup.sh                     Fetches swift-app-kit and runs its install script
 ```
 
 A few details that aren't obvious:
@@ -158,7 +159,7 @@ A few details that aren't obvious:
 macOS ties the Accessibility permission to an app's code signature. A normal local build gets
 an *ad-hoc* signature, which changes every time you rebuild. macOS then quietly stops honoring
 the permission, even though the toggle in System Settings still looks on. To avoid that,
-`setup.sh` creates a self-signed certificate once, in its own keychain
+swift-app-kit's setup creates a self-signed certificate once, in its own keychain
 (`~/Library/Keychains/recall-codesign.keychain-db`), and signs every build with it. Your login
 keychain and system trust settings aren't touched.
 
@@ -170,6 +171,11 @@ keychain and system trust settings aren't touched.
 swift build               # just compile
 ```
 
+To change the shared parts (menu, Settings layout, install script), edit
+[swift-app-kit](https://github.com/VedAtal/swift-app-kit) and build Recall against your local
+copy with `swift package edit swift-app-kit --path ../swift-app-kit`. The kit's README explains
+the rest of the workflow.
+
 The project builds with only the Command Line Tools. One catch: in the current SDK, SwiftUI's
 `@State` is a macro whose plugin only comes with full Xcode, so the code avoids `@State` and
-`@StateObject`. View state lives in `ObservableObject` classes instead (see `SettingsWindow.swift`).
+`@StateObject`. View state lives in `ObservableObject` classes instead.

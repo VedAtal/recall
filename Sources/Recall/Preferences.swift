@@ -1,5 +1,7 @@
+import AppKit
+import Carbon.HIToolbox
 import Combine
-import Foundation
+import SwiftAppKit
 
 /// User settings, backed by UserDefaults. AppDelegate observes these and applies changes live.
 @MainActor
@@ -25,10 +27,6 @@ final class Preferences: ObservableObject {
             defaults.set(shortcut.keyLabel, forKey: Key.shortcutLabel)
         }
     }
-
-    // Runtime-only state shared with the settings window; not persisted.
-    @Published var isRecordingShortcut = false
-    @Published var shortcutError: String?
 
     private let defaults = UserDefaults.standard
 
@@ -60,7 +58,7 @@ final class Preferences: ObservableObject {
                 keyLabel: label
             )
         } else {
-            shortcut = .defaultValue
+            shortcut = Shortcut(kVK_ANSI_V, [.command, .shift], label: "V")
         }
     }
 }

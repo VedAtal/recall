@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import SwiftAppKit
 import SwiftUI
 
 /// Borderless panel that can take keyboard focus without activating Recall, so the app you're

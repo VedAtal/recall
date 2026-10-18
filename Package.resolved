@@ -1,0 +1,15 @@
+{
+  "originHash" : "510087d4e3a49c8c6dbe2e60ca6f0ef0377cd6e236ed90917bff68a942b2912f",
+  "pins" : [
+    {
+      "identity" : "swift-app-kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/VedAtal/swift-app-kit.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "daac1191a2bde2b49b21954641247cdedb630152"
+      }
+    }
+  ],
+  "version" : 3
+}

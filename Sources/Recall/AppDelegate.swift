@@ -1,20 +1,25 @@
 import AppKit
 import Combine
+import SwiftAppKit
+import SwiftUI
 
+/// Recall's parts on top of SwiftAppKit's standard menu bar app (menu, Settings, updates,
+/// launch at login).
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: MenuBarAppDelegate {
     private let prefs = Preferences.shared
     private let watcher = ClipboardWatcher()
-    private let hotKey = HotKey()
     private let switcher = SwitcherController()
-    private let updater = Updater()
     private var store: HistoryStore!
-    private var menuBar: MenuBarController!
-    private var settingsWindow: SettingsWindowController!
     private var subscriptions = Set<AnyCancellable>()
-    private var promptedForAccessibility = false
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    /// One per number key. The full history is in the ⇧⌘V popup.
+    private static let maxMenuClips = 9
+    private static let hotKeyName = "openHistory"
+
+    override var needsAccessibility: Bool { prefs.autoPaste }
+
+    override func start() {
         store = HistoryStore(limit: prefs.historyLimit, persist: prefs.persistHistory)
 
         watcher.onCopy = { [weak self] text, sourceApp in
@@ -25,34 +30,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switcher.onChoose = { [weak self] clip in self?.paste(clip) }
         switcher.onDelete = { [weak self] clip in self?.store.remove(clip.id) }
 
-        hotKey.onPress = { [weak self] in self?.hotKeyPressed() }
         registerShortcut(prefs.shortcut)
-
-        settingsWindow = SettingsWindowController(prefs: prefs) { [weak self] in self?.store.clear() }
-
-        menuBar = MenuBarController(store: store, prefs: prefs, updater: updater)
-        menuBar.onPick = { [weak self] clip in self?.paste(clip) }
-        menuBar.onClear = { [weak self] in self?.store.clear() }
-        menuBar.onOpenSettings = { [weak self] in self?.settingsWindow.show() }
-
         observePreferences()
-        enableLaunchAtLoginOnFirstRun()
-
-        // setup.sh relaunches Recall with this flag after an update from the menu.
-        if CommandLine.arguments.contains("--updated") {
-            updater.showUpdateResult()
-        }
-
-        if prefs.autoPaste && !Paster.hasAccessibility {
-            promptedForAccessibility = true
-            Paster.requestAccessibility()
-        }
     }
 
-    // Opening the app again (Finder, Spotlight) while it's running shows Settings.
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        settingsWindow.show()
-        return false
+    override func addMenuItems(to menu: NSMenu) {
+        let clips = store.clips.prefix(Self.maxMenuClips)
+        if clips.isEmpty {
+            menu.addDisabledItem("Nothing copied yet")
+        }
+        for (index, clip) in clips.enumerated() {
+            let item = menu.addItem(clip.menuTitle, key: "\(index + 1)", modifiers: []) { [weak self] in
+                self?.paste(clip)
+            }
+            item.toolTip = String(clip.text.prefix(1000))
+        }
+        if store.clips.count > clips.count {
+            menu.addDisabledItem("\(store.clips.count - clips.count) more in \(prefs.shortcut.displayString)")
+        }
+
+        menu.addItem(.separator())
+        menu.addDisabledItem(HotKeyCenter.shared.failed.contains(Self.hotKeyName)
+            ? "\(prefs.shortcut.displayString) is already in use. Pick another shortcut in Settings."
+            : "Open history: \(prefs.shortcut.displayString)")
+        menu.addItem("Clear History") { [weak self] in self?.store.clear() }.isEnabled = !store.clips.isEmpty
+    }
+
+    override func makeSettingsView() -> AnyView {
+        AnyView(SettingsView(prefs: prefs) { [weak self] in self?.store.clear() })
     }
 
     private func hotKeyPressed() {
@@ -69,12 +74,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.promote(clip.id)
 
         guard prefs.autoPaste else { return }
-        guard Paster.hasAccessibility else {
+        guard Accessibility.isGranted else {
             // It's on the clipboard either way; only nag once per launch.
-            if !promptedForAccessibility {
-                promptedForAccessibility = true
-                Paster.requestAccessibility()
-            }
+            Accessibility.requestOnce()
             return
         }
         Task { @MainActor in
@@ -85,23 +87,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerShortcut(_ shortcut: Shortcut) {
-        prefs.shortcutError = hotKey.register(shortcut)
-            ? nil
-            : "\(shortcut.displayString) is already in use. Pick another shortcut in Settings."
+        HotKeyCenter.shared.register(Self.hotKeyName, shortcut) { [weak self] in self?.hotKeyPressed() }
     }
 
     private func observePreferences() {
         // @Published fires before the property changes, so use the value passed in.
         prefs.$shortcut.dropFirst()
             .sink { [weak self] shortcut in self?.registerShortcut(shortcut) }
-            .store(in: &subscriptions)
-
-        prefs.$isRecordingShortcut.dropFirst()
-            .sink { [weak self] recording in
-                guard let self else { return }
-                // Stop listening while a new shortcut is being typed, so the old one doesn't fire.
-                if recording { hotKey.unregister() } else { registerShortcut(prefs.shortcut) }
-            }
             .store(in: &subscriptions)
 
         prefs.$historyLimit.dropFirst()
@@ -111,14 +103,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         prefs.$persistHistory.dropFirst()
             .sink { [weak self] persist in self?.store.persist = persist }
             .store(in: &subscriptions)
-    }
-
-    private func enableLaunchAtLoginOnFirstRun() {
-        let key = "configuredLoginItem"
-        // Only the installed copy, so running a dev build doesn't add a login item.
-        guard !UserDefaults.standard.bool(forKey: key),
-              Bundle.main.bundlePath.contains("/Applications/") else { return }
-        UserDefaults.standard.set(true, forKey: key)
-        try? LoginItem.setEnabled(true)
     }
 }
