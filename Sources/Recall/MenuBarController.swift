@@ -69,11 +69,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(disabledItem("Updating Recall…"))
         } else {
             let update = actionItem("Update Recall", #selector(update))
-            update.toolTip = Updater.sourceDirectory.map { "Rebuild from \($0.path) and restart" }
+            update.toolTip = Updater.repositoryName.map { "Download the latest from \($0) and reinstall" }
             menu.addItem(update)
         }
-        if let built = Updater.buildDate {
-            menu.addItem(disabledItem("Built \(built.formatted(.relative(presentation: .named)))"))
+        if let version = Updater.versionDescription {
+            menu.addItem(disabledItem(version))
         }
         menu.addItem(actionItem("Quit Recall", #selector(quit), key: "q"))
     }

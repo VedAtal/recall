@@ -15,26 +15,43 @@ That one command does everything:
 
 1. Checks that Swift is installed. If it isn't, it opens Apple's Command Line Tools installer;
    re-run the command once that finishes. Full Xcode isn't needed.
-2. Creates a local code-signing certificate (first run only, see [why](#why-the-signing-certificate)).
-3. Builds Recall and installs it to `~/Applications/Recall.app`.
-4. Launches it and sets it to start at login.
+2. Downloads the latest version from GitHub ([VedAtal/recall](https://github.com/VedAtal/recall)).
+3. Creates a local code-signing certificate (first run only, see [why](#why-the-signing-certificate)).
+4. Builds Recall and installs it to `~/Applications/Recall.app`.
+5. Launches it and sets it to start at login.
+
+| Command | Installs |
+|---|---|
+| `./setup.sh` | The latest commit on GitHub (the default) |
+| `./setup.sh --local` | This folder as it is, including changes you haven't committed or pushed |
+| `./setup.sh --build-only` | Nothing. It just builds `build/Recall.app` from this folder |
+| `./setup.sh --uninstall` | Nothing. It removes Recall completely ([details](#uninstall)) |
 
 **One manual step:** the first time Recall runs, macOS asks you to allow it under
 **System Settings → Privacy & Security → Accessibility**. Turn it on. Recall needs this to
 paste into other apps. Without it, choosing an item only copies it, and you press ⌘V yourself.
 
-### Updating after you change the code
+### Updating
 
-Either click **Update Recall** in the menu bar menu, or run `./setup.sh` again. Both do the
-same thing: rebuild, quit the running copy, install the new one, and relaunch. Your history,
-settings, and Accessibility permission stay.
+**To the latest on GitHub:** click **Update Recall** in the menu bar menu, or run `./setup.sh`.
+Both work the same way:
 
-- The menu shows **Built …** (for example "Built 2 minutes ago"), so you can tell the new
-  version is the one running.
-- If the build fails, nothing is replaced. The old version keeps running and shows the error.
-  The full output is in `~/Library/Logs/Recall/update.log`.
-- If you move the project folder, run `setup.sh` from the new location once, so the menu
-  item knows where the project is.
+- They check GitHub, download anything newer, rebuild, quit the running copy, and launch the
+  new one.
+- If you're already on the latest commit, they say so and change nothing.
+- Your history, settings, and Accessibility permission stay.
+
+**To try local changes before pushing them:** run `./setup.sh --local`. The next
+**Update Recall** or plain `./setup.sh` replaces that build with whatever is on GitHub.
+
+- The menu shows which version is running, for example **Version 59ba24f · built 2 minutes ago**.
+  "(modified)" after the version means it was built with `--local` from a folder that had
+  uncommitted changes.
+- If an update fails, nothing is replaced. The old version keeps running and shows the error.
+  The full output from the menu item is in `~/Library/Logs/Recall/update.log`.
+- Updates download into `~/Library/Caches/Recall/source`, never into your project folder, so
+  they can't touch your work in progress. They download over HTTPS, so they don't need your
+  SSH key. If the repo ever becomes private, that download will need GitHub credentials.
 
 ## Using it
 
@@ -84,7 +101,8 @@ the signing certificate.
 
 **Choosing an item copies it but doesn't paste.** Recall doesn't have Accessibility access.
 Open System Settings → Privacy & Security → Accessibility and turn on Recall. If it's already
-on and still doesn't work, select Recall, remove it with **−**, then run `./setup.sh` again.
+on and still doesn't work, select Recall and remove it with **−**. Then quit Recall from its menu
+and open it again (Spotlight → Recall); macOS will ask for access again.
 The menu bar menu shows **Grant Accessibility Access…** while access is missing.
 
 **⇧⌘V doesn't open anything.** Another app probably has the same shortcut. Flycut uses ⇧⌘V
@@ -113,13 +131,13 @@ Sources/Recall/
 ├── Paster.swift             Writes the clipboard and sends a synthetic ⌘V (needs Accessibility)
 ├── MenuBarController.swift  Menu bar icon and menu
 ├── SettingsWindow.swift     Settings window and shortcut recorder
-├── Updater.swift            "Update Recall": runs setup.sh from the source folder
+├── Updater.swift            "Update Recall": runs the bundled setup.sh to install from GitHub
 ├── LoginItem.swift          Launch at login (SMAppService)
 ├── Preferences.swift        Settings stored in UserDefaults
 └── Shortcut.swift           Key code and modifier handling for shortcuts
 Resources/Info.plist         Bundle metadata (LSUIElement = menu bar only)
 scripts/make-icon.swift      Draws the app icon at build time
-setup.sh                     Build, sign, install, and uninstall
+setup.sh                     Install (from GitHub or --local), build, sign, uninstall
 ```
 
 A few details that aren't obvious:
@@ -144,6 +162,7 @@ keychain and system trust settings aren't touched.
 ### Development
 
 ```sh
+./setup.sh --local        # build and install what is in this folder right now
 ./setup.sh --build-only   # build and sign build/Recall.app without installing
 swift build               # just compile
 ```

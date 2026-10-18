@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# One-step build + install for Recall.
+# One-step install for Recall. Builds the app, installs it to ~/Applications, and launches it.
 #
-#   ./setup.sh               build, install to ~/Applications, and launch
-#   ./setup.sh --build-only  just build build/Recall.app
+#   ./setup.sh               install the latest version from GitHub
+#   ./setup.sh --local       install from this folder, including uncommitted changes
+#   ./setup.sh --build-only  build build/Recall.app from this folder without installing
 #   ./setup.sh --uninstall   remove the app, its history, settings, login item, and signing key
 #
 set -euo pipefail
@@ -18,6 +19,8 @@ APP="$BUILD_DIR/$APP_NAME.app"
 INSTALL_DIR="$HOME/Applications"
 INSTALLED_APP="$INSTALL_DIR/$APP_NAME.app"
 DATA_DIR="$HOME/Library/Application Support/Recall"
+CACHE_DIR="$HOME/Library/Caches/Recall"  # holds the GitHub checkout that installs build from
+LOG_DIR="$HOME/Library/Logs/Recall"
 
 # macOS ties the Accessibility permission to the app's code signature. An ad-hoc signature
 # changes with every build, which silently breaks the permission. So we keep a self-signed
@@ -38,6 +41,10 @@ fi
 step() { printf '%s==>%s %s%s%s\n' "$BLUE" "$RESET" "$BOLD" "$*" "$RESET"; }
 warn() { printf '%swarning:%s %s\n' "$YELLOW" "$RESET" "$*" >&2; }
 die()  { printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
+
+require_project_folder() {
+  [[ -f "$ROOT/Package.swift" ]] || die "$1 has to be run from the Recall project folder."
+}
 
 check_requirements() {
   [[ "$(uname)" == "Darwin" ]] || die "Recall only runs on macOS."
@@ -112,6 +119,31 @@ make_icon() {
   fi
 }
 
+# git@github.com:owner/repo.git → https://github.com/owner/repo.git (other URLs unchanged).
+# Updates download over HTTPS so they don't need your SSH key, which may have a passphrase.
+https_url() {
+  if [[ "$1" =~ ^git@([^:]+):(.+)$ ]] || [[ "$1" =~ ^ssh://git@([^/]+)/(.+)$ ]]; then
+    echo "https://${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+  else
+    echo "$1"
+  fi
+}
+
+# Records when and from which commit this build was made, and where updates come from. The menu
+# shows the version, and "Update Recall" uses it to tell whether GitHub has anything newer.
+record_build_info() {
+  local plist="$1" commit repo
+  plutil -insert RecallBuildDate -string "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$plist"
+  if commit=$(git rev-parse HEAD 2>/dev/null); then
+    # Uncommitted changes mean this build doesn't match any commit on GitHub.
+    [[ -z "$(git status --porcelain 2>/dev/null)" ]] || commit+="-dirty"
+    plutil -insert RecallCommit -string "$commit" "$plist"
+  fi
+  if repo=$(git remote get-url origin 2>/dev/null); then
+    plutil -insert RecallRepositoryURL -string "$(https_url "$repo")" "$plist"
+  fi
+}
+
 build_app() {
   step "Building ${APP_NAME}…"
   # The filter hides harmless linker warnings that only show up with the Command Line Tools.
@@ -130,9 +162,9 @@ build_app() {
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
   cp "$bin" "$APP/Contents/MacOS/$APP_NAME"
   cp Resources/Info.plist "$APP/Contents/Info.plist"
-  # The "Update Recall" menu item runs this script from here. The build time shows in the menu.
-  plutil -insert RecallSourceDirectory -string "$ROOT" "$APP/Contents/Info.plist"
-  plutil -insert RecallBuildDate -string "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$APP/Contents/Info.plist"
+  record_build_info "$APP/Contents/Info.plist"
+  # The "Update Recall" menu item runs this bundled copy (in its default, install-from-GitHub mode).
+  cp setup.sh "$APP/Contents/Resources/setup.sh"
   if [[ -f "$BUILD_DIR/AppIcon.icns" ]]; then
     cp "$BUILD_DIR/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
   fi
@@ -144,6 +176,65 @@ build_app() {
   else
     codesign --force --sign "$SIGN_ID" --keychain "$KEYCHAIN" "$APP"
   fi
+}
+
+# --- Install from GitHub --------------------------------------------------------------------
+
+# Where to download from: $RECALL_REPO if set, else this folder's origin. The "Update Recall" menu
+# item sets $RECALL_REPO from the running app's Info.plist, because the copy of this script inside
+# the app bundle isn't in a git checkout.
+repository_url() {
+  if [[ -n "${RECALL_REPO:-}" ]]; then
+    echo "$RECALL_REPO"
+    return 0
+  fi
+  local origin
+  origin=$(git -C "$ROOT" remote get-url origin 2>/dev/null) || return 1
+  https_url "$origin"
+}
+
+# Downloads GitHub's latest commit into a private checkout and runs that checkout's
+# `setup.sh --local`, so the build always uses the newest build steps too. Does nothing if the
+# installed app was already built from that commit. ("Update Recall" relies on this: when the
+# script exits 0 and the app is still running, nothing needed installing.)
+install_from_github() {
+  local repo latest installed checkout="$CACHE_DIR/source"
+  repo=$(repository_url) \
+    || die "This folder has no GitHub remote to install from. Use ./setup.sh --local to install it as it is."
+  export GIT_TERMINAL_PROMPT=0  # never wait on a password prompt nobody can see
+
+  step "Checking ${repo}…"
+  latest=$(git ls-remote "$repo" HEAD 2>/dev/null | cut -f1)
+  [[ -n "$latest" ]] || die "Couldn't reach $repo."
+
+  # Running from a project checkout that has work GitHub doesn't? Point out --local.
+  if [[ -z "${RECALL_REPO:-}" ]] \
+     && { [[ -n "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]] \
+          || [[ "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)" != "$latest" ]]; }; then
+    echo "    Note: this folder doesn't match GitHub. To install what's here instead, run ./setup.sh --local"
+  fi
+
+  installed=$(plutil -extract RecallCommit raw "$INSTALLED_APP/Contents/Info.plist" 2>/dev/null || true)
+  if [[ "$latest" == "$installed" ]]; then
+    echo "Recall is already up to date (${latest:0:7})."
+    exit 0
+  fi
+
+  step "Downloading ${latest:0:7}…"
+  if [[ -d "$checkout/.git" ]]; then
+    git -C "$checkout" remote set-url origin "$repo"
+    git -C "$checkout" fetch --quiet origin HEAD
+    # Nobody edits this checkout by hand, so make it match GitHub exactly. Build caches are
+    # gitignored, so they survive and rebuilds stay fast.
+    git -C "$checkout" reset --quiet --hard FETCH_HEAD
+    git -C "$checkout" clean -fdq
+  else
+    rm -rf "$checkout"
+    mkdir -p "$CACHE_DIR"
+    git clone --quiet "$repo" "$checkout"
+  fi
+
+  exec /bin/bash "$checkout/setup.sh" --local
 }
 
 # --- Install / uninstall --------------------------------------------------------------------
@@ -190,7 +281,7 @@ uninstall() {
   if [[ -x "$INSTALLED_APP/Contents/MacOS/$APP_NAME" ]]; then
     "$INSTALLED_APP/Contents/MacOS/$APP_NAME" --unregister-login-item || true
   fi
-  rm -rf "$INSTALLED_APP" "$BUILD_DIR" "$DATA_DIR"
+  rm -rf "$INSTALLED_APP" "$BUILD_DIR" "$DATA_DIR" "$CACHE_DIR" "$LOG_DIR"
   defaults delete "$BUNDLE_ID" >/dev/null 2>&1 || true
   tccutil reset Accessibility "$BUNDLE_ID" >/dev/null 2>&1 || true
   if [[ -f "$KEYCHAIN" ]]; then
@@ -200,8 +291,9 @@ uninstall() {
 }
 
 case "${1:-}" in
-  "")           check_requirements; build_app; install_app ;;
-  --build-only) check_requirements; build_app; echo "Built $APP" ;;
+  "")           check_requirements; install_from_github ;;
+  --local)      require_project_folder --local; check_requirements; build_app; install_app ;;
+  --build-only) require_project_folder --build-only; check_requirements; build_app; echo "Built $APP" ;;
   --uninstall)  uninstall ;;
   -h|--help)    sed -n '3,8p' "$0" | sed 's/^# \{0,1\}//' ;;
   *)            die "Unknown option: $1 (try --help)" ;;
