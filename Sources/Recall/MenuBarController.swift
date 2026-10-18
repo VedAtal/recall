@@ -12,7 +12,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let prefs: Preferences
     private let updater: Updater
 
-    private static let maxMenuClips = 25
+    /// One per number key. The full history is in the ⇧⌘V popup.
+    private static let maxMenuClips = 9
 
     init(store: HistoryStore, prefs: Preferences, updater: Updater) {
         self.store = store
@@ -38,7 +39,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             menu.addItem(disabledItem("Nothing copied yet"))
         }
         for (index, clip) in clips.enumerated() {
-            let item = NSMenuItem(title: clip.menuTitle, action: #selector(pick(_:)), keyEquivalent: index < 9 ? "\(index + 1)" : "")
+            let item = NSMenuItem(title: clip.menuTitle, action: #selector(pick(_:)), keyEquivalent: "\(index + 1)")
             item.keyEquivalentModifierMask = []
             item.target = self
             item.representedObject = clip.id
@@ -65,13 +66,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(actionItem("Settings…", #selector(openSettings), key: ","))
 
         menu.addItem(.separator())
-        if updater.isUpdating {
-            menu.addItem(disabledItem("Updating Recall…"))
-        } else {
-            let update = actionItem("Update Recall", #selector(update))
-            update.toolTip = Updater.repositoryName.map { "Download the latest from \($0) and reinstall" }
-            menu.addItem(update)
-        }
+        // While an update runs, the same item brings its progress window back.
+        let update = actionItem(updater.isUpdating ? "Updating Recall…" : "Update Recall", #selector(update))
+        update.toolTip = updater.isUpdating
+            ? "Show update progress"
+            : Updater.repositoryName.map { "Download the latest from \($0) and reinstall" }
+        menu.addItem(update)
         if let version = Updater.versionDescription {
             menu.addItem(disabledItem(version))
         }

@@ -38,6 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observePreferences()
         enableLaunchAtLoginOnFirstRun()
 
+        // setup.sh relaunches Recall with this flag after an update from the menu.
+        if CommandLine.arguments.contains("--updated") {
+            updater.showUpdateResult()
+        }
+
         if prefs.autoPaste && !Paster.hasAccessibility {
             promptedForAccessibility = true
             Paster.requestAccessibility()

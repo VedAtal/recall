@@ -138,6 +138,7 @@ record_build_info() {
     # Uncommitted changes mean this build doesn't match any commit on GitHub.
     [[ -z "$(git status --porcelain 2>/dev/null)" ]] || commit+="-dirty"
     plutil -insert RecallCommit -string "$commit" "$plist"
+    plutil -insert RecallCommitSubject -string "$(git log -1 --format=%s)" "$plist"
   fi
   if repo=$(git remote get-url origin 2>/dev/null); then
     plutil -insert RecallRepositoryURL -string "$(https_url "$repo")" "$plist"
@@ -239,14 +240,16 @@ install_from_github() {
 
 # --- Install / uninstall --------------------------------------------------------------------
 
+# -a matters: macOS pgrep/pkill skip the processes that started them unless told otherwise, and
+# when "Update Recall" runs this script, the Recall process to quit is the one that started it.
 stop_running_app() {
-  pgrep -x "$APP_NAME" >/dev/null || return 0
-  pkill -x "$APP_NAME" || true
+  pgrep -a -x "$APP_NAME" >/dev/null || return 0
+  pkill -a -x "$APP_NAME" || true
   for _ in {1..50}; do
-    pgrep -x "$APP_NAME" >/dev/null || return 0
+    pgrep -a -x "$APP_NAME" >/dev/null || return 0
     sleep 0.1
   done
-  pkill -9 -x "$APP_NAME" || true
+  pkill -9 -a -x "$APP_NAME" || true
 }
 
 install_app() {
@@ -261,7 +264,11 @@ install_app() {
   fi
 
   step "Launching…"
-  open "$INSTALLED_APP"
+  if [[ -n "${RECALL_FROM_APP:-}" ]]; then
+    open "$INSTALLED_APP" --args --updated  # the new copy shows "Recall was updated"
+  else
+    open "$INSTALLED_APP"
+  fi
 
   cat <<EOF
 

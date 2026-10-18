@@ -47,8 +47,11 @@ Both work the same way:
 - The menu shows which version is running, for example **Version 59ba24f · built 2 minutes ago**.
   "(modified)" after the version means it was built with `--local` from a folder that had
   uncommitted changes.
-- If an update fails, nothing is replaced. The old version keeps running and shows the error.
-  The full output from the menu item is in `~/Library/Logs/Recall/update.log`.
+- From the menu, a window shows progress, including the build output under **Details**. You can
+  close it and the update keeps going; click **Updating Recall…** to bring it back. When the new
+  version starts, it shows **Recall was updated** with the commit it's running.
+- If an update fails, nothing is replaced. The old version keeps running and the window shows
+  the error. The full output is in `~/Library/Logs/Recall/update.log`.
 - Updates download into `~/Library/Caches/Recall/source`, never into your project folder, so
   they can't touch your work in progress. They download over HTTPS, so they don't need your
   SSH key. If the repo ever becomes private, that download will need GitHub credentials.
@@ -68,7 +71,7 @@ Both work the same way:
 Pasting an older item also moves it back to the top.
 
 While Recall is running, its **clipboard icon** sits in the menu bar at the top right. Click it
-to see your 25 most recent items (click one to paste it), plus **Clear History**,
+to see your 9 most recent items (click one, or press its number, to paste it), plus **Clear History**,
 **Launch at Login** (a checkmark you can toggle), **Settings…**, **Update Recall**, and **Quit**.
 
 ### Settings
