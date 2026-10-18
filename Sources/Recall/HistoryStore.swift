@@ -38,7 +38,50 @@ extension Clip {
     }
 }
 
-/// The clipboard history, newest first. Saved as JSON in ~/Library/Application Support/Recall.
+/// A JSON file of clips in ~/Library/Application Support/Recall. Writes happen in the background.
+struct ClipFile: Sendable {
+    let url: URL
+    private let queue: DispatchQueue
+
+    init(_ name: String) {
+        url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Recall", isDirectory: true)
+            .appendingPathComponent(name)
+        queue = DispatchQueue(label: "recall.\(name)", qos: .utility)
+    }
+
+    func load() -> [Clip]? {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? decoder.decode([Clip].self, from: data)
+    }
+
+    func save(_ clips: [Clip]) {
+        let url = url
+        queue.async {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            guard let data = try? encoder.encode(clips) else { return }
+            let fileManager = FileManager.default
+            // Clips can contain anything you've copied, so keep them readable only by you.
+            try? fileManager.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            guard (try? data.write(to: url, options: .atomic)) != nil else { return }
+            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        }
+    }
+
+    func delete() {
+        let url = url
+        queue.async { try? FileManager.default.removeItem(at: url) }
+    }
+}
+
+/// The clipboard history, newest first.
 @MainActor
 final class HistoryStore {
     private(set) var clips: [Clip] = []
@@ -47,35 +90,27 @@ final class HistoryStore {
         didSet { trim(); save() }
     }
     var persist: Bool {
-        didSet { persist ? save() : deleteFile() }
+        didSet { persist ? save() : file.delete() }
     }
 
-    private let fileURL: URL
-    private let ioQueue = DispatchQueue(label: "recall.history", qos: .utility)
+    private let file = ClipFile("history.json")
 
     init(limit: Int, persist: Bool) {
         self.limit = max(1, limit)
         self.persist = persist
-        fileURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Recall", isDirectory: true)
-            .appendingPathComponent("history.json")
-        if persist { load() } else { deleteFile() }
+        if persist {
+            clips = file.load() ?? []
+            trim()
+        } else {
+            file.delete()
+        }
     }
 
-    /// Records a new copy. Copying something already in the history moves it to the top.
+    /// Records a copy, or moves it to the top (as copied now) if the same text is already here.
     func add(_ text: String, sourceApp: String?) {
         clips.removeAll { $0.text == text }
         clips.insert(Clip(text: text, copiedAt: .now, sourceApp: sourceApp), at: 0)
         trim()
-        save()
-    }
-
-    /// Moves an existing clip to the top, e.g. after it's been pasted.
-    func promote(_ id: Clip.ID) {
-        guard let index = clips.firstIndex(where: { $0.id == id }) else { return }
-        var clip = clips.remove(at: index)
-        clip.copiedAt = .now
-        clips.insert(clip, at: 0)
         save()
     }
 
@@ -93,37 +128,30 @@ final class HistoryStore {
         if clips.count > limit { clips.removeLast(clips.count - limit) }
     }
 
-    private func load() {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let data = try? Data(contentsOf: fileURL),
-              let saved = try? decoder.decode([Clip].self, from: data) else { return }
-        clips = saved
-        trim()
-    }
-
     private func save() {
-        guard persist else { return }
-        let snapshot = clips
-        let url = fileURL
-        ioQueue.async {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            guard let data = try? encoder.encode(snapshot) else { return }
-            let fileManager = FileManager.default
-            // History can contain anything you've copied, so keep it readable only by you.
-            try? fileManager.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            guard (try? data.write(to: url, options: .atomic)) != nil else { return }
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        }
+        if persist { file.save(clips) }
+    }
+}
+
+/// Favorited clips, most recently favorited first. Unlike history, they're always saved, never
+/// trimmed, and Clear History leaves them alone.
+@MainActor
+final class FavoritesStore {
+    private(set) var clips: [Clip] = []
+
+    private let file = ClipFile("favorites.json")
+
+    init() {
+        clips = file.load() ?? []
     }
 
-    private func deleteFile() {
-        let url = fileURL
-        ioQueue.async { try? FileManager.default.removeItem(at: url) }
+    /// Favorites the clip, or unfavorites it if the same text is already a favorite.
+    func toggle(_ clip: Clip) {
+        if let index = clips.firstIndex(where: { $0.text == clip.text }) {
+            clips.remove(at: index)
+        } else {
+            clips.insert(Clip(text: clip.text, copiedAt: .now, sourceApp: clip.sourceApp), at: 0)
+        }
+        file.save(clips)
     }
 }

@@ -11,6 +11,7 @@ final class AppDelegate: MenuBarAppDelegate {
     private let watcher = ClipboardWatcher()
     private let switcher = SwitcherController()
     private var store: HistoryStore!
+    private let favorites = FavoritesStore()
     private var subscriptions = Set<AnyCancellable>()
 
     /// One per number key. The full history is in the ⇧⌘V popup.
@@ -29,6 +30,9 @@ final class AppDelegate: MenuBarAppDelegate {
 
         switcher.onChoose = { [weak self] clip in self?.paste(clip) }
         switcher.onDelete = { [weak self] clip in self?.store.remove(clip.id) }
+        switcher.onToggleFavorite = { [weak self] clip in self?.favorites.toggle(clip) }
+        switcher.history = { [weak self] in self?.store.clips ?? [] }
+        switcher.favorites = { [weak self] in self?.favorites.clips ?? [] }
 
         registerShortcut(prefs.shortcut)
         observePreferences()
@@ -64,14 +68,15 @@ final class AppDelegate: MenuBarAppDelegate {
         if switcher.isVisible {
             switcher.selectNext()
         } else {
-            switcher.show(clips: store.clips, shortcut: prefs.shortcut, sticky: prefs.stickyPanel)
+            switcher.show(shortcut: prefs.shortcut, sticky: prefs.stickyPanel)
         }
     }
 
     private func paste(_ clip: Clip) {
         Paster.copy(clip.text)
         watcher.skipCurrentContents()
-        store.promote(clip.id)
+        // Moves it to the top of History, and puts a favorite back there if it had dropped out.
+        store.add(clip.text, sourceApp: clip.sourceApp)
 
         guard prefs.autoPaste else { return }
         guard Accessibility.isGranted else {

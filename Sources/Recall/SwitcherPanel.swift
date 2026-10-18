@@ -10,23 +10,45 @@ private final class SwitcherWindow: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+private extension Color {
+    static let favoriteGold = Color(red: 0.96, green: 0.76, blue: 0.20)
+}
+
 @MainActor
 final class SwitcherModel: ObservableObject {
+    enum Tab {
+        case history, favorites
+    }
+
+    @Published var tab: Tab = .history
+    /// The items in the current tab.
     @Published var clips: [Clip] = []
     @Published var selection = 0
-    @Published var releaseHint = ""
-    /// Bumped on every show so the list starts out scrolled to the top.
+    @Published var historyCount = 0
+    @Published var favoritesCount = 0
+    /// Texts of favorited clips, for the stars in the History tab.
+    @Published var favoriteTexts: Set<String> = []
+    /// What pastes: "release ⇧⌘" while holding the shortcut, or "↩" in sticky mode.
+    @Published var pasteKey = ""
+    /// Bumped on every show and tab switch so the list starts out scrolled to the top.
     @Published var generation = 0
 
     var selectedClip: Clip? { clips.indices.contains(selection) ? clips[selection] : nil }
+
+    func isFavorite(_ clip: Clip) -> Bool { favoriteTexts.contains(clip.text) }
 }
 
 /// The history popup. Hold the shortcut's modifiers, tap the key again (or use the arrows) to go
-/// further back, and let go to paste. This is the same interaction as Flycut.
+/// further back, and let go to paste. This is the same interaction as Flycut. F switches to the
+/// Favorites tab, and S favorites or unfavorites the selected item.
 @MainActor
 final class SwitcherController {
     var onChoose: ((Clip) -> Void)?
     var onDelete: ((Clip) -> Void)?
+    var onToggleFavorite: ((Clip) -> Void)?
+    /// Where the two tabs get their items. Read again whenever the list changes.
+    var history: () -> [Clip] = { [] }
+    var favorites: () -> [Clip] = { [] }
 
     var isVisible: Bool { panel.isVisible }
 
@@ -41,7 +63,7 @@ final class SwitcherController {
 
     init() {
         panel = SwitcherWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 440),
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 460),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: true
@@ -62,20 +84,23 @@ final class SwitcherController {
         background.layer?.cornerRadius = 14
         background.layer?.masksToBounds = true
 
-        let host = NSHostingView(rootView: SwitcherView(model: model) { [weak self] index in
-            self?.choose(at: index)
-        })
+        let view = SwitcherView(
+            model: model,
+            onPick: { [weak self] index in self?.choose(at: index) },
+            onSelectTab: { [weak self] tab in self?.switchTab(to: tab) }
+        )
+        let host = NSHostingView(rootView: view)
         host.frame = background.bounds
         host.autoresizingMask = [.width, .height]
         background.addSubview(host)
         panel.contentView = background
     }
 
-    func show(clips: [Clip], shortcut: Shortcut, sticky: Bool) {
-        model.clips = clips
-        model.selection = 0
+    func show(shortcut: Shortcut, sticky: Bool) {
+        model.tab = .history
         model.generation += 1
-        model.releaseHint = sticky ? "↩ paste" : "release \(shortcut.modifierSymbols) to paste"
+        reload(selecting: 0)
+        model.pasteKey = sticky ? "↩" : "release \(shortcut.modifierSymbols)"
         heldModifiers = shortcut.cocoaModifiers
         shortcutKeyCode = Int(shortcut.keyCode)
         self.sticky = sticky
@@ -146,6 +171,8 @@ final class SwitcherController {
         switch Int(event.keyCode) {
         case kVK_DownArrow: move(by: 1)
         case kVK_UpArrow: move(by: -1)
+        case kVK_LeftArrow: switchTab(to: .history)
+        case kVK_RightArrow: switchTab(to: .favorites)
         case kVK_PageDown: move(by: 9, wrap: false)
         case kVK_PageUp: move(by: -9, wrap: false)
         case kVK_Home: move(to: 0)
@@ -159,6 +186,9 @@ final class SwitcherController {
             // shortcut) goes back.
             let back = event.modifierFlags.contains(.shift) && !heldModifiers.contains(.shift)
             move(by: back ? -1 : 1)
+        // After the shortcut's key, so a shortcut like ⌥F still cycles; ←/→ switch tabs then.
+        case kVK_ANSI_F: switchTab(to: model.tab == .history ? .favorites : .history)
+        case kVK_ANSI_S: toggleFavorite()
         default:
             if let digit = event.characters(byApplyingModifiers: []).flatMap({ Int($0) }), (1...9).contains(digit) {
                 choose(at: digit - 1)
@@ -166,6 +196,44 @@ final class SwitcherController {
         }
         // Swallow everything else too, so stray keys don't beep or reach the app underneath.
         return true
+    }
+
+    // MARK: - Lists
+
+    /// Re-reads both lists, keeping the selection near `index`.
+    private func reload(selecting index: Int) {
+        let history = self.history()
+        let favorites = self.favorites()
+        model.historyCount = history.count
+        model.favoritesCount = favorites.count
+        model.favoriteTexts = Set(favorites.map(\.text))
+        model.clips = model.tab == .history ? history : favorites
+        model.selection = min(max(index, 0), max(model.clips.count - 1, 0))
+    }
+
+    private func switchTab(to tab: SwitcherModel.Tab) {
+        guard tab != model.tab else { return }
+        model.tab = tab
+        model.generation += 1
+        reload(selecting: 0)
+    }
+
+    private func toggleFavorite() {
+        guard let clip = model.selectedClip else { return }
+        onToggleFavorite?(clip)
+        // In History the item just gains or loses its star. In Favorites it disappears.
+        reload(selecting: model.selection)
+    }
+
+    private func deleteSelected() {
+        guard let clip = model.selectedClip else { return }
+        // In Favorites, ⌫ only unfavorites. The item stays in History if it's there.
+        if model.tab == .favorites {
+            onToggleFavorite?(clip)
+        } else {
+            onDelete?(clip)
+        }
+        reload(selecting: model.selection)
     }
 
     // MARK: - Selection
@@ -194,13 +262,6 @@ final class SwitcherController {
         if let clip { onChoose?(clip) }
     }
 
-    private func deleteSelected() {
-        guard let clip = model.selectedClip else { return }
-        onDelete?(clip)
-        model.clips.remove(at: model.selection)
-        model.selection = min(model.selection, max(model.clips.count - 1, 0))
-    }
-
     private func positionOnActiveScreen() {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
@@ -219,16 +280,15 @@ final class SwitcherController {
 private struct SwitcherView: View {
     @ObservedObject var model: SwitcherModel
     let onPick: (Int) -> Void
+    let onSelectTab: (SwitcherModel.Tab) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
+            tabs
+            Divider()
             if model.clips.isEmpty {
-                ContentUnavailableView(
-                    "Nothing copied yet",
-                    systemImage: "list.clipboard",
-                    description: Text("Copy some text and it will show up here.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                emptyState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 list
                 Divider()
@@ -237,6 +297,43 @@ private struct SwitcherView: View {
             Divider()
             footer
         }
+        // Gold border while Favorites is open. Same corner radius as the panel's background.
+        .overlay {
+            if model.tab == .favorites {
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(Color.favoriteGold, lineWidth: 3)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: model.tab)
+    }
+
+    private var tabs: some View {
+        HStack(spacing: 6) {
+            TabButton(title: "History", systemImage: "clock", count: model.historyCount,
+                      tint: .accentColor, isSelected: model.tab == .history) { onSelectTab(.history) }
+            TabButton(title: "Favorites", systemImage: "star.fill", count: model.favoritesCount,
+                      tint: .favoriteGold, isSelected: model.tab == .favorites) { onSelectTab(.favorites) }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 40)
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if model.tab == .history {
+            ContentUnavailableView(
+                "Nothing copied yet",
+                systemImage: "list.clipboard",
+                description: Text("Copy some text and it will show up here.")
+            )
+        } else {
+            ContentUnavailableView(
+                "No favorites yet",
+                systemImage: "star",
+                description: Text("Select an item in History and press S to keep it here.")
+            )
+        }
     }
 
     private var list: some View {
@@ -244,9 +341,15 @@ private struct SwitcherView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(model.clips.enumerated()), id: \.element.id) { index, clip in
-                        ClipRow(clip: clip, index: index, isSelected: index == model.selection)
-                            .contentShape(Rectangle())
-                            .onTapGesture { onPick(index) }
+                        ClipRow(
+                            clip: clip,
+                            index: index,
+                            isSelected: index == model.selection,
+                            // Every item in Favorites is one, so stars only mean something in History.
+                            showsStar: model.tab == .history && model.isFavorite(clip)
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture { onPick(index) }
                     }
                 }
                 .padding(8)
@@ -270,13 +373,27 @@ private struct SwitcherView: View {
             .frame(height: 130)
     }
 
+    /// The key guide at the bottom. Changes with the tab and the selected item.
+    private var hints: [(key: String, label: String)] {
+        var hints: [(key: String, label: String)] = [(model.pasteKey, "paste"), ("↑↓", "move"), ("1–9", "pick")]
+        if model.tab == .history {
+            let starred = model.selectedClip.map(model.isFavorite) ?? false
+            hints += [("S", starred ? "unfavorite" : "favorite"), ("F", "favorites"), ("⌫", "delete")]
+        } else {
+            hints += [("S", "unfavorite"), ("F", "history")]
+        }
+        hints.append(("esc", "close"))
+        return hints
+    }
+
     private var footer: some View {
-        HStack(spacing: 14) {
-            Text(model.releaseHint)
-            Text("↑↓ move")
-            Text("1–9 pick")
-            Text("⌫ delete")
-            Text("esc cancel")
+        HStack(spacing: 12) {
+            ForEach(hints, id: \.key) { hint in
+                HStack(spacing: 4) {
+                    Text(hint.key).fontWeight(.semibold).foregroundStyle(.primary.opacity(0.75))
+                    Text(hint.label)
+                }
+            }
             Spacer()
             if !model.clips.isEmpty {
                 Text("\(model.selection + 1) of \(model.clips.count)").monospacedDigit()
@@ -289,10 +406,38 @@ private struct SwitcherView: View {
     }
 }
 
+private struct TabButton: View {
+    let title: String
+    let systemImage: String
+    let count: Int
+    let tint: Color
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .foregroundStyle(isSelected ? tint : Color.secondary)
+            Text(title)
+                .fontWeight(isSelected ? .semibold : .regular)
+            Text("\(count)")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(Capsule().fill(isSelected ? tint.opacity(0.22) : Color.clear))
+        .contentShape(Capsule())
+        .onTapGesture(perform: action)
+    }
+}
+
 private struct ClipRow: View {
     let clip: Clip
     let index: Int
     let isSelected: Bool
+    let showsStar: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -304,6 +449,11 @@ private struct ClipRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(isSelected ? Color.white : Color.primary)
+            if showsStar {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(isSelected ? Color.white : Color.favoriteGold)
+            }
             Spacer(minLength: 8)
             Text(clip.subtitle)
                 .font(.system(size: 11))

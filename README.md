@@ -67,10 +67,20 @@ Both work the same way:
 | Let go of **⇧⌘** | Paste the selected item |
 | **1–9** | Paste that item right away |
 | **↩** or click | Paste the selected item |
-| **⌫** | Delete the selected item from the history |
+| **S** | Favorite the selected item (or unfavorite it if it already is one) |
+| **F** or **←** / **→** | Switch between the History and Favorites tabs |
+| **⌫** | Delete the selected item from the history (in Favorites: unfavorite it) |
 | **esc** or click outside | Close without pasting |
 
-Pasting an older item also moves it back to the top.
+Pasting an older item also moves it back to the top. The bar along the bottom of the popup lists
+these keys.
+
+### Favorites
+
+Favorites are items you want to keep around for good. Open the popup, select an item, and press
+**S**; it gets a gold ★. Press **F** to see all your favorites. The popup gets a gold border while
+the Favorites tab is open. Favorites are always saved, aren't limited by the history size, and
+**Clear History** doesn't touch them. Pasting a favorite puts it back at the top of History too.
 
 While Recall is running, its **clipboard icon** sits in the menu bar at the top right. Click it
 to see your 9 most recent items (click one, or press its number, to paste it), plus **Clear History**,
@@ -87,8 +97,9 @@ to see your 9 most recent items (click one, or press its number, to paste it), p
 
 ## Privacy
 
-- History stays on your Mac, in `~/Library/Application Support/Recall/history.json`. Only
-  your user account can read it.
+- History and favorites stay on your Mac, in `history.json` and `favorites.json` under
+  `~/Library/Application Support/Recall/`. Only your user account can read them. Favorites are
+  saved even when "Keep history after quitting" is off.
 - Items marked as secret or temporary are never recorded. Password managers such as 1Password
   set these markers (see [nspasteboard.org](http://nspasteboard.org)) on what they copy.
 - Only plain text is saved. Images and files are skipped.
