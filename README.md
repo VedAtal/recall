@@ -193,3 +193,7 @@ the rest of the workflow.
 The project builds with only the Command Line Tools. One catch: in the current SDK, SwiftUI's
 `@State` is a macro whose plugin only comes with full Xcode, so the code avoids `@State` and
 `@StateObject`. View state lives in `ObservableObject` classes instead.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
