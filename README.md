@@ -8,7 +8,7 @@ It runs in the menu bar, uses almost no memory, and keeps everything on your Mac
 ## Setup
 
 ```sh
-git clone https://github.com/VedAtal/recall.git && recall/setup.sh
+curl -fsSL https://raw.githubusercontent.com/VedAtal/swift-app-kit/main/scripts/install.sh | bash -s recall
 ```
 
 That one command does everything:
@@ -19,10 +19,11 @@ That one command does everything:
    along with [swift-app-kit](https://github.com/VedAtal/swift-app-kit), the parts it shares with
    my other menu bar apps.
 3. Creates a local code-signing certificate (first run only, see [why](#why-the-signing-certificate)).
-4. Builds Recall and installs it to `~/Applications/Recall.app`.
+4. Builds Recall and installs it to `~/Applications/Recall.app`, then deletes the download.
 5. Launches it and sets it to start at login.
 
-From the cloned folder, `setup.sh` also takes:
+To work on Recall, clone the repo (`git clone https://github.com/VedAtal/recall.git`). Its
+`setup.sh` takes:
 
 | Command | Installs |
 |---|---|
@@ -37,7 +38,7 @@ paste into other apps. Without it, choosing an item only copies it, and you pres
 
 ### Updating
 
-**To the latest on GitHub:** click **Update Recall** in the menu bar menu, or run `./setup.sh`.
+**To the latest on GitHub:** click **Update Recall** in the menu bar menu, or run `./setup.sh` in a clone.
 Both work the same way:
 
 - They check GitHub, download anything newer, rebuild, quit the running copy, and launch the
