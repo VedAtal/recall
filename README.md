@@ -8,7 +8,7 @@ It runs in the menu bar, uses almost no memory, and keeps everything on your Mac
 ## Setup
 
 ```sh
-~/projects/recall/setup.sh
+git clone https://github.com/VedAtal/recall.git && recall/setup.sh
 ```
 
 That one command does everything:
@@ -21,6 +21,8 @@ That one command does everything:
 3. Creates a local code-signing certificate (first run only, see [why](#why-the-signing-certificate)).
 4. Builds Recall and installs it to `~/Applications/Recall.app`.
 5. Launches it and sets it to start at login.
+
+From the cloned folder, `setup.sh` also takes:
 
 | Command | Installs |
 |---|---|
@@ -107,7 +109,7 @@ to see your 9 most recent items (click one, or press its number, to paste it), p
 ## Uninstall
 
 ```sh
-~/projects/recall/setup.sh --uninstall
+~/Applications/Recall.app/Contents/Resources/setup.sh --uninstall
 ```
 
 This removes the app, its history and settings, the login item, the Accessibility entry, and
