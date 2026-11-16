@@ -38,7 +38,7 @@ paste into other apps. Without it, choosing an item only copies it, and you pres
 
 ### Updating
 
-**To the latest on GitHub:** click **Update Recall** in the menu bar menu, or run `./setup.sh` in a clone.
+**To the latest on GitHub:** click **Update Recall** in the menu (right-click the clipboard icon, or **⋯** in the panel), or run `./setup.sh` in a clone.
 Both work the same way:
 
 - They check GitHub, download anything newer, rebuild, quit the running copy, and launch the
@@ -86,8 +86,9 @@ the Favorites tab is open. Favorites are always saved, aren't limited by the his
 **Clear History** doesn't touch them. Pasting a favorite puts it back at the top of History too.
 
 While Recall is running, its **clipboard icon** sits in the menu bar at the top right. Click it
-to see your 9 most recent items (click one, or press its number, to paste it), plus **Clear History**,
-**Launch at Login** (a checkmark you can toggle), **Settings…**, **Update Recall**, and **Quit**.
+for the panel: your 9 most recent items (click one, or press its number, to paste it into the app
+you were in), and **Clear History**. **⚙** opens Settings; **⋯**, or right-clicking the icon, shows
+**Launch at Login**, **Update Recall**, the version, and **Quit Recall**.
 
 ### Settings
 
@@ -122,11 +123,11 @@ the signing certificate.
 Open System Settings → Privacy & Security → Accessibility and turn on Recall. If it's already
 on and still doesn't work, select Recall and remove it with **−**. Then quit Recall from its menu
 and open it again (Spotlight → Recall); macOS will ask for access again.
-The menu bar menu shows **Grant Accessibility Access…** while access is missing.
+The panel shows **Grant Accessibility Access…** while access is missing.
 
 **⇧⌘V doesn't open anything.** Another app probably has the same shortcut. Flycut uses ⇧⌘V
 too, so quit it, or pick a different shortcut in Settings. If Recall couldn't register the
-shortcut, the menu bar menu says so. Note that ⇧⌘V is also "Paste and Match Style" in many apps;
+shortcut, the panel says so. Note that ⇧⌘V is also "Paste and Match Style" in many apps;
 Recall takes it over, just like Flycut does.
 
 **I don't see the menu bar icon.** Check that Recall is running (`pgrep -x Recall`). If it is,
@@ -140,14 +141,15 @@ Keep the target text field focused before you press the shortcut.
 ## How it works
 
 Recall is built on [swift-app-kit](https://github.com/VedAtal/swift-app-kit), which provides
-the parts my menu bar apps share: the install script, the menu bar menu's standard items,
+the parts my menu bar apps share: the install script, the panel's frame and the standard menu,
 the Settings window layout, the shortcut recorder, launch at login, and updates. This repo
 holds only what's specific to Recall:
 
 ```
 Sources/Recall/
 ├── main.swift               Starts the app through swift-app-kit
-├── AppDelegate.swift        Connects the parts below, adds Recall's menu items, applies settings live
+├── AppDelegate.swift        Connects the parts below, builds the panel, applies settings live
+├── PanelView.swift          The panel: the latest clips, and Clear History
 ├── ClipboardWatcher.swift   Checks NSPasteboard.changeCount every 0.25s for new text
 ├── HistoryStore.swift       Newest-first list with no duplicates, saved as JSON
 ├── SwitcherPanel.swift      The ⇧⌘V popup: a non-activating NSPanel with a SwiftUI list
@@ -185,7 +187,7 @@ keychain and system trust settings aren't touched.
 swift build               # just compile
 ```
 
-To change the shared parts (menu, Settings layout, install script), edit
+To change the shared parts (panel, menu, Settings layout, install script), edit
 [swift-app-kit](https://github.com/VedAtal/swift-app-kit) and build Recall against your local
 copy with `swift package edit swift-app-kit --path ../swift-app-kit`. The kit's README explains
 the rest of the workflow.

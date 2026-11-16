@@ -3,7 +3,7 @@ import Combine
 import SwiftAppKit
 import SwiftUI
 
-/// Recall's parts on top of SwiftAppKit's standard menu bar app (menu, Settings, updates,
+/// Recall's parts on top of SwiftAppKit's standard menu bar app (panel, menu, Settings, updates,
 /// launch at login).
 @MainActor
 final class AppDelegate: MenuBarAppDelegate {
@@ -15,7 +15,7 @@ final class AppDelegate: MenuBarAppDelegate {
     private var subscriptions = Set<AnyCancellable>()
 
     /// One per number key. The full history is in the ⇧⌘V popup.
-    private static let maxMenuClips = 9
+    private static let maxPanelClips = 9
     private static let hotKeyName = "openHistory"
 
     override var needsAccessibility: Bool { prefs.autoPaste }
@@ -38,26 +38,20 @@ final class AppDelegate: MenuBarAppDelegate {
         observePreferences()
     }
 
-    override func addMenuItems(to menu: NSMenu) {
-        let clips = store.clips.prefix(Self.maxMenuClips)
-        if clips.isEmpty {
-            menu.addDisabledItem("Nothing copied yet")
-        }
-        for (index, clip) in clips.enumerated() {
-            let item = menu.addItem(clip.menuTitle, key: "\(index + 1)", modifiers: []) { [weak self] in
+    override func makePanelView() -> AnyView? {
+        let clips = Array(store.clips.prefix(Self.maxPanelClips))
+        return AnyView(PanelView(
+            clips: clips, more: store.clips.count - clips.count, shortcut: prefs.shortcut.displayString,
+            shortcutTaken: HotKeyCenter.shared.failed.contains(Self.hotKeyName),
+            paste: { [weak self] clip in
+                self?.closePanel()
                 self?.paste(clip)
+            },
+            clearHistory: { [weak self] in
+                self?.store.clear()
+                self?.closePanel()
             }
-            item.toolTip = String(clip.text.prefix(1000))
-        }
-        if store.clips.count > clips.count {
-            menu.addDisabledItem("\(store.clips.count - clips.count) more in \(prefs.shortcut.displayString)")
-        }
-
-        menu.addItem(.separator())
-        menu.addDisabledItem(HotKeyCenter.shared.failed.contains(Self.hotKeyName)
-            ? "\(prefs.shortcut.displayString) is already in use. Pick another shortcut in Settings."
-            : "Open history: \(prefs.shortcut.displayString)")
-        menu.addItem("Clear History") { [weak self] in self?.store.clear() }.isEnabled = !store.clips.isEmpty
+        ))
     }
 
     override func makeSettingsView() -> AnyView {

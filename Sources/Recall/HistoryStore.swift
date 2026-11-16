@@ -18,11 +18,6 @@ extension Clip {
             .replacingOccurrences(of: "\t", with: " ")
     }
 
-    var menuTitle: String {
-        let title = self.title
-        return title.count > 60 ? title.prefix(60) + "…" : title
-    }
-
     var subtitle: String {
         [sourceApp, age].compactMap { $0 }.joined(separator: " · ")
     }
